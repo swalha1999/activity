@@ -1,0 +1,13 @@
+{
+  "name": "example-with-nextjs",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@swalha1999/activity": "workspace:*",
+    "@swalha1999/activity-drizzle": "workspace:*",
+    "drizzle-orm": "^0.36.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
