@@ -170,13 +170,6 @@ export function createActivity<
       if (!instance.canUndo(original))
         return { success: false, error: "Activity cannot be undone" };
 
-      // Mark original as undone
-      await adapter.update(activityId, {
-        // We use metadata to pass undo-specific fields since adapter.update takes Partial<ActivityEntry>
-      } as Partial<ActivityEntry>);
-
-      // Actually update the is_undone fields via a direct update call
-      // We need to handle this through the adapter
       const now = new Date();
       const undoEntry: ActivityEntry = {
         action: `undo_${original.action}` as string,
@@ -202,6 +195,11 @@ export function createActivity<
           _undoneAt: now.toISOString(),
         },
       } as Partial<ActivityEntry>);
+
+      // Restore the actual resource if the adapter supports it
+      if (adapter.restoreResource) {
+        await adapter.restoreResource(original);
+      }
 
       return { success: true, activity: undoActivity };
     },

@@ -1,6 +1,6 @@
 {
   "name": "@swalha1999/activity",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "Git-like undo/redo audit logging system for databases",
   "type": "module",
   "main": "./dist/index.cjs",

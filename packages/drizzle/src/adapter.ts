@@ -1,5 +1,5 @@
-import { and, count, desc, asc, eq, lt, sql, inArray, gte, lte } from "drizzle-orm";
-import type { PgDatabase } from "drizzle-orm/pg-core";
+import { and, count, desc, asc, eq, lt, sql, inArray, gte, lte, getTableColumns, type Table } from "drizzle-orm";
+import type { PgDatabase, PgTable } from "drizzle-orm/pg-core";
 import type {
   ActivityAdapter,
   ActivityEntry,
@@ -9,6 +9,11 @@ import type {
   StatsQuery,
 } from "@swalha1999/activity";
 import { activityLogTable, type ActivityLogRow } from "./schema.js";
+
+export interface DrizzleAdapterOptions {
+  /** Map resource type names to their Drizzle tables for undo resource restoration */
+  resourceTables?: Record<string, PgTable>;
+}
 
 function rowToActivityLog(row: ActivityLogRow): ActivityLog {
   return {
@@ -53,8 +58,22 @@ function entryToInsert(entry: ActivityEntry) {
   };
 }
 
+/** Filter a state object to only include valid DB column names for a table */
+function pickColumns(table: Table, state: Record<string, unknown>): Record<string, unknown> {
+  const columns = getTableColumns(table);
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(columns)) {
+    if (key in state) {
+      result[key] = state[key];
+    }
+  }
+  return result;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function drizzleAdapter(db: PgDatabase<any, any, any>): ActivityAdapter {
+export function drizzleAdapter(db: PgDatabase<any, any, any>, options?: DrizzleAdapterOptions): ActivityAdapter {
+  const resourceTables = options?.resourceTables;
+
   return {
     async insert(entry: ActivityEntry): Promise<ActivityLog> {
       const [row] = await db
@@ -145,6 +164,16 @@ export function drizzleAdapter(db: PgDatabase<any, any, any>): ActivityAdapter {
             : null;
           delete (updateData.metadata as Record<string, unknown>)._undoneAt;
         }
+      }
+
+      // If no fields to update, just return the existing row
+      if (Object.keys(updateData).length === 0) {
+        const existing = await db
+          .select()
+          .from(activityLogTable)
+          .where(eq(activityLogTable.id, id))
+          .limit(1);
+        return rowToActivityLog(existing[0]);
       }
 
       const [row] = await db
@@ -260,6 +289,44 @@ export function drizzleAdapter(db: PgDatabase<any, any, any>): ActivityAdapter {
         ),
       };
     },
+
+    // Resource restoration for undo support
+    restoreResource: resourceTables
+      ? async (activityLog: ActivityLog): Promise<void> => {
+          const table = resourceTables[activityLog.resourceType];
+          if (!table) return;
+
+          const { action, resourceId, previousState } = activityLog;
+          // Use the id column from the table for where clauses
+          const idCol = getTableColumns(table).id;
+          if (!idCol) return;
+
+          if (action === "delete" && previousState) {
+            // Re-insert the deleted record
+            const data = pickColumns(table, previousState);
+            await db.insert(table).values(data as never).onConflictDoNothing();
+          } else if (action === "soft_delete" && resourceId) {
+            // Clear soft-delete fields
+            await db
+              .update(table)
+              .set({ deletedAt: null, deletedBy: null } as never)
+              .where(eq(idCol, resourceId));
+          } else if (action === "create" && resourceId) {
+            // Undo create = delete the record
+            await db.delete(table).where(eq(idCol, resourceId));
+          } else if (previousState && resourceId) {
+            // For update/rename/toggle/change_role/etc: restore to previousState
+            const data = pickColumns(table, previousState);
+            delete data.id;
+            delete data.createdAt;
+            data.updatedAt = new Date();
+            await db
+              .update(table)
+              .set(data as never)
+              .where(eq(idCol, resourceId));
+          }
+        }
+      : undefined,
   };
 }
 

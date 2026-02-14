@@ -89,6 +89,8 @@ export interface ActivityAdapter {
   delete(query: { olderThan: Date }): Promise<{ deleted: number }>;
   count(query?: ActivityQuery): Promise<number>;
   getStats(query: StatsQuery): Promise<ActivityStats>;
+  /** Restore a resource to its previous state (implemented by adapters with resourceTables) */
+  restoreResource?(activityLog: ActivityLog): Promise<void>;
 }
 
 // ---- Config types ----
@@ -109,6 +111,8 @@ export interface ActivityConfig<
     resourceType?: Partial<Record<TResourceTypes[number], string>>;
     icon?: Partial<Record<TActions[number], string>>;
     color?: Partial<Record<TActions[number], string>>;
+    /** Map resource type to field name(s) used as display name. Tries fields in order, uses first non-empty. */
+    resourceName?: Partial<Record<TResourceTypes[number], string | string[]>>;
   };
   retention?: { days: number; cleanupInterval?: string };
 }
@@ -261,6 +265,8 @@ export interface ActivityInstance<
     color(action: TAction): string;
     full(activityLog: ActivityLog, options?: { userName?: string }): string;
     short(activityLog: ActivityLog): string;
+    /** Human-readable message e.g. "Created Event 'Wedding Party'" or "Updated Contact 'Ahmed' (name, phone)" */
+    message(activityLog: ActivityLog, options?: { userName?: string }): string;
   };
 
   // Cleanup

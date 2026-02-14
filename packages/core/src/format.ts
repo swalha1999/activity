@@ -8,6 +8,27 @@ export function createFormatter<
   const resourceTypeLabels = config.format?.resourceType ?? {};
   const icons = config.format?.icon ?? {};
   const colors = config.format?.color ?? {};
+  const resourceNameFields = config.format?.resourceName ?? {};
+
+  function getResourceName(activityLog: ActivityLog): string | null {
+    const fields = (resourceNameFields as Record<string, string | string[]>)[
+      activityLog.resourceType
+    ];
+    if (!fields) return null;
+
+    const fieldList = Array.isArray(fields) ? fields : [fields];
+    // Try newState first (for creates/updates), then previousState (for deletes)
+    const state = activityLog.newState ?? activityLog.previousState;
+    if (!state) return null;
+
+    for (const field of fieldList) {
+      const value = state[field];
+      if (value != null && String(value).trim() !== "") {
+        return String(value).trim();
+      }
+    }
+    return null;
+  }
 
   return {
     action(action: TActions[number]): string {
@@ -55,6 +76,33 @@ export function createFormatter<
         ] ?? activityLog.resourceType;
 
       return `${actionLabel} ${resourceLabel.toLowerCase()}`;
+    },
+
+    message(activityLog: ActivityLog, options?: { userName?: string }): string {
+      const actionLabel =
+        (actionLabels as Record<string, string>)[activityLog.action] ??
+        capitalize(activityLog.action);
+      const resourceLabel =
+        (resourceTypeLabels as Record<string, string>)[
+          activityLog.resourceType
+        ] ?? capitalize(activityLog.resourceType);
+
+      const name = getResourceName(activityLog);
+      const changedFields = activityLog.changedFields;
+
+      let msg = options?.userName
+        ? `${options.userName} ${actionLabel.toLowerCase()} ${resourceLabel}`
+        : `${actionLabel} ${resourceLabel}`;
+
+      if (name) {
+        msg += ` '${name}'`;
+      }
+
+      if (changedFields && changedFields.length > 0) {
+        msg += ` (${changedFields.join(", ")})`;
+      }
+
+      return msg;
     },
   };
 }
